@@ -1,0 +1,25 @@
+# 依赖与缓存
+venv/
+__pycache__/
+*.pyc
+
+# 本地日志（前后端运行产生）
+logs/
+*.log
+
+# 用户数据与向量库（运行时状态，不纳入版本控制）
+vectordb/
+data/uploads/
+data/agents.json
+data/qa_cache.db
+data/qa_cache.json
+data/qa_cache.json.migrated
+
+# 工具 / IDE 产生的本地文件
+.idea/
+.pids/
+resume_out/
+
+# 环境变量（仅忽略真实配置，模板 .env.example 需提交）
+.env
+.env.local

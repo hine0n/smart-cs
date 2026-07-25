@@ -1,0 +1,82 @@
+<svg viewBox="0 0 680 540" width="100%" role="img">
+  <title>smart-cs 项目架构图</title>
+  <desc>前端两个 Streamlit 应用经 FastAPI 网关调用 services 服务层，服务层使用 src 核心库，底层依赖 ChromaDB 向量库与阿里云百炼 DashScope 大模型。</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="30" y="34" width="620" height="410" rx="20" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+
+  <text x="340" y="56" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#2C2C2A">smart-cs · 智能客服知识中台</text>
+
+  <text x="50" y="80" font-family="sans-serif" font-size="12" fill="#5F5E5A">前端层 · Streamlit</text>
+  <g>
+    <rect x="60" y="86" width="250" height="52" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="185" y="105" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#085041">管理后台 admin_app</text>
+    <text x="185" y="125" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">127.0.0.1:8501 · 建库/导入/管 Agent</text>
+  </g>
+  <g>
+    <rect x="370" y="86" width="250" height="52" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="495" y="105" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#085041">客户端 customer_app</text>
+    <text x="495" y="125" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">127.0.0.1:8502 · 流式问答</text>
+  </g>
+
+  <path d="M340 140 L340 158" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="50" y="172" font-family="sans-serif" font-size="12" fill="#5F5E5A">API 层 · FastAPI 8000</text>
+  <g>
+    <rect x="60" y="178" width="250" height="52" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="185" y="197" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#0C447C">路由 routers</text>
+    <text x="185" y="217" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#185FA5">knowledge-bases / chat / agents</text>
+  </g>
+  <g>
+    <rect x="370" y="178" width="250" height="52" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="495" y="197" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#0C447C">鉴权与校验</text>
+    <text x="495" y="217" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#185FA5">deps · namespace 合法性</text>
+  </g>
+
+  <path d="M340 232 L340 250" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="50" y="262" font-family="sans-serif" font-size="12" fill="#5F5E5A">服务层 · services</text>
+  <g>
+    <rect x="60" y="270" width="250" height="52" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <text x="185" y="289" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#3C3489">知识库服务 kb_service</text>
+    <text x="185" y="309" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">建库 · 导入 · 检索 · 删除</text>
+  </g>
+  <g>
+    <rect x="370" y="270" width="250" height="52" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+    <text x="495" y="289" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#3C3489">智能体服务 + 注册表</text>
+    <text x="495" y="309" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">agent_service · agents.json</text>
+  </g>
+
+  <path d="M340 324 L340 342" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="50" y="354" font-family="sans-serif" font-size="12" fill="#5F5E5A">核心库 · src</text>
+  <g>
+    <rect x="60" y="362" width="250" height="64" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+    <text x="185" y="386" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#633806">检索与生成</text>
+    <text x="185" y="408" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#854F0B">agent · vector_store · reranker</text>
+  </g>
+  <g>
+    <rect x="370" y="362" width="250" height="64" rx="10" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+    <text x="495" y="386" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#633806">加载与接口</text>
+    <text x="495" y="408" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#854F0B">document_loader · api_client</text>
+  </g>
+
+  <path d="M340 428 L340 476" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="50" y="472" font-family="sans-serif" font-size="12" fill="#5F5E5A">外部依赖</text>
+  <g>
+    <rect x="60" y="480" width="250" height="52" rx="10" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+    <text x="185" y="499" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#712B13">ChromaDB 向量库</text>
+    <text x="185" y="519" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#993C1D">vectordb/ 本地持久化</text>
+  </g>
+  <g>
+    <rect x="370" y="480" width="250" height="52" rx="10" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+    <text x="495" y="499" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="500" fill="#712B13">阿里云百炼 DashScope</text>
+    <text x="495" y="519" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#993C1D">LLM · text-embedding-v3</text>
+  </g>
+</svg>
