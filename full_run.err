@@ -1,0 +1,11 @@
+D:\projects\WorkBuddy\Claw\smart-cs\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+
+[93m[SECURITY WARNING] API_KEY 未配置：所有接口当前「无需鉴权」。任何能访问本服务的人都能读取/删除知识库、上传数据、调用 LLM。生产部署务必在 .env 设置 API_KEY，并在前端前置认证。[0m
+
+[93m[SECURITY NOTICE] CORS 允许所有来源 (CORS_ORIGINS=*)，生产环境请限定可信域名。[0m
+2026-07-26 01:11:11,200 INFO GET /health status=200 0.017s
+2026-07-26 01:11:11,207 INFO GET /api/v1/cache/stats status=200 0.004s
+2026-07-26 01:11:11,216 INFO POST /api/v1/cache/clear status=200 0.007s
+2026-07-26 01:11:11,221 INFO GET /api/v1/agents status=200 0.002s
+2026-07-26 01:11:11,321 INFO GET /api/v1/knowledge-bases status=200 0.098s

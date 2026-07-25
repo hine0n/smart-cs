@@ -6,6 +6,15 @@ import json
 import shutil
 from pathlib import Path
 
+# 让输出在 GBK/UTF-8 等任意终端下都不会因 emoji/中文而崩溃
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # 把项目根目录加入路径
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -18,7 +27,11 @@ if env_file.exists():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")
-                os.environ[key.strip()] = val.strip().strip('"').strip("'")
+                val = val.strip().strip('"').strip("'")
+                # 去除行内注释（模拟 python-dotenv：空格后 # 起为注释）
+                if " #" in val:
+                    val = val.split(" #", 1)[0].strip()
+                os.environ[key.strip()] = val
 
 RESULTS = {"passed": 0, "failed": 0, "skipped": 0, "details": []}
 
@@ -348,6 +361,323 @@ def test_full_pipeline():
 
 
 # ============================================================
+# Test 6: 命名空间校验（api/namespace.py，无需 API Key）
+# ============================================================
+def test_namespace():
+    print("\n" + "=" * 60)
+    print(" 测试 6: 命名空间校验")
+    print("=" * 60)
+
+    from api.namespace import is_valid_name, compose
+
+    valid = ["kb1", "我的知识库", "a-b_c", "Agent 01", "test.kb"]
+    invalid = ["", "  ", "a/b", "a\\b", "a:b", "a*b", 'a"b', "a<b", "a>b",
+               "a|b", ".", "..", "a/../b", "foo/./bar"]
+
+    all_ok = True
+    for n in valid:
+        if not is_valid_name(n):
+            all_ok = False
+            check(f"  合法名被拒: {n!r}", False)
+    check(f"合法知识库名通过校验: {valid}", all_ok)
+
+    all_rej = True
+    for n in invalid:
+        if is_valid_name(n):
+            all_rej = False
+            check(f"  非法名被放行: {n!r}", False)
+    check(f"非法名（含路径/保留字符/..）被拦截: {invalid}", all_rej)
+
+    # compose: 当前即知识库名本身（去首尾空白）
+    check("compose(' foo ') == 'foo'", compose(" foo ") == "foo")
+    check("compose('my_kb') == 'my_kb'", compose("my_kb") == "my_kb")
+
+
+# ============================================================
+# Test 7: Agent 注册表（services/agent_registry.py，无需 API Key）
+# 用临时文件替换 AGENTS_FILE，避免污染真实数据
+# ============================================================
+def test_agent_registry():
+    print("\n" + "=" * 60)
+    print(" 测试 7: Agent 注册表")
+    print("=" * 60)
+
+    import tempfile
+    import services.agent_registry as ar_mod
+
+    tmp = Path(tempfile.mkdtemp()) / "agents.json"
+    original = ar_mod.AGENTS_FILE
+    ar_mod.AGENTS_FILE = tmp
+    try:
+        reg = ar_mod.AgentRegistry()
+
+        # 创建
+        rec = reg.create_agent({"name": "客服A", "kb_name": "kb_a",
+                                 "system_prompt": "你是客服A"})
+        check(f"创建 Agent: {rec.get('agent_id')}", bool(rec.get("agent_id")))
+        aid = rec["agent_id"]
+        check("  published 默认 False", rec.get("published") is False)
+
+        # 查
+        got = reg.get_agent(aid)
+        check("get_agent 能取回", got is not None and got["name"] == "客服A")
+
+        # 重复 id 报错
+        dup_payload = {"agent_id": aid, "name": "重复"}
+        try:
+            reg.create_agent(dup_payload)
+            check("重复 agent_id 抛 ValueError", False)
+        except ValueError:
+            check("重复 agent_id 抛 ValueError", True)
+
+        # 更新
+        upd = reg.update_agent(aid, {"name": "客服A改", "language_mode": "zh"})
+        check("update_agent 改名字", upd is not None and upd["name"] == "客服A改")
+
+        # 发布互斥：创建第二个并发布，第一个应自动取消发布
+        rec2 = reg.create_agent({"name": "客服B", "published": True})
+        aid2 = rec2["agent_id"]
+        pub = reg.get_published()
+        check("get_published 返回后发布的 Agent", pub is not None and pub["agent_id"] == aid2)
+        check("旧 Agent 自动取消发布", reg.get_agent(aid)["published"] is False)
+        check("同一时刻仅一个 published", len(reg.list_agents(published=True)) == 1)
+
+        # 删除
+        check("delete_agent 成功", reg.delete_agent(aid2) is True)
+        check("delete_agent 不存在返回 False", reg.delete_agent(aid2) is False)
+    finally:
+        ar_mod.AGENTS_FILE = original
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ============================================================
+# Test 8: 问答缓存（services/qa_cache.py，无需 API Key）
+# 仅测精确命中分支（不依赖 embedding 网络调用），用临时 DB 隔离
+# ============================================================
+def test_qa_cache():
+    print("\n" + "=" * 60)
+    print(" 测试 8: 问答缓存")
+    print("=" * 60)
+
+    import tempfile
+    import services.qa_cache as qa_mod
+
+    if not qa_mod.QA_CACHE_ENABLED:
+        check("跳过 — QA_CACHE_ENABLED=false", False, warn=True)
+        return
+
+    tmp = Path(tempfile.mkdtemp()) / "qa_cache.db"
+    original = qa_mod._DB_PATH
+    qa_mod._DB_PATH = tmp
+    try:
+        cache = qa_mod.QACache()
+
+        # normalize：全角转半角 + 压缩空白
+        norm = qa_mod.QACache.normalize("  ＡＢＣ　　ｄｅｆ  ")
+        check(f"normalize 去全角/空白: {norm!r}", norm == "ABC def")
+
+        scope = "kb:test"
+        q = "客服工作时间？"
+        # 精确写入与命中（不传 emb，仅测精确分支，无需 API）
+        cache.put(q, scope, "周一至周五 9:00-18:00", [{"source": "手册"}])
+        hit = cache.get(q, scope)
+        check("精确命中返回答案", hit is not None and hit[0] == "周一至周五 9:00-18:00")
+        check("精确命中类型标记 exact", hit is not None and hit[2] == "exact")
+
+        # 不同问法（无 emb）应未命中
+        miss = cache.get("今天天气怎么样", scope)
+        check("不同问题未命中（无语义向量）", miss is None)
+
+        # 统计与实际条目数
+        stats = cache.stats()
+        check(f"stats.entries>=1: {stats.get('entries')}", stats.get("entries", 0) >= 1)
+
+        # 清指定 scope
+        cache.clear(scope)
+        check("clear(scope) 后该维度为空", cache.get(q, scope) is None)
+    finally:
+        qa_mod._DB_PATH = original
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ============================================================
+# Test 9: Excel 加载（src/document_loader._load_excel，无需 API Key）
+# ============================================================
+def test_excel_loader():
+    print("\n" + "=" * 60)
+    print(" 测试 9: Excel 加载")
+    print("=" * 60)
+
+    try:
+        import pandas as pd  # noqa: F401
+    except ImportError:
+        check("跳过 — 未安装 pandas/openpyxl", False, warn=True)
+        return
+
+    from src.document_loader import DocumentLoader
+
+    import tempfile
+    tmp_xlsx = Path(tempfile.mkdtemp()) / "sample.xlsx"
+    try:
+        import pandas as pd
+        df = pd.DataFrame({
+            "问题": ["密码找回", "发票申请"],
+            "答案": ["点击忘记密码", "在后台提交"],
+            "编码": ["00123", "00456"],  # 保留前导零（dtype=str）
+        })
+        df.to_excel(tmp_xlsx, index=False, engine="openpyxl")
+
+        loader = DocumentLoader()
+        docs = loader._load_excel(str(tmp_xlsx), source_name="样例.xlsx")
+        check(f"Excel 解析出 {len(docs)} 条记录", len(docs) >= 1)
+        if docs:
+            d0 = docs[0]
+            check("  来源标记为用户文件名", d0.metadata.get("source") == "样例.xlsx")
+            check("  file_type=xlsx", d0.metadata.get("file_type") == "xlsx")
+            check("  内容为结构化 JSON", d0.page_content.startswith("{"))
+            check("  保留前导零(00123)", "00123" in d0.page_content)
+            check("  含行列字段", '"问题"' in d0.page_content and '"答案"' in d0.page_content)
+    except Exception as e:
+        check(f"Excel 加载异常: {e}", False)
+    finally:
+        try:
+            tmp_xlsx.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ============================================================
+# Test 10: 系统提示词拼接（config.build_agent_prompt，无需 API Key）
+# ============================================================
+def test_build_agent_prompt():
+    print("\n" + "=" * 60)
+    print(" 测试 10: 系统提示词拼接")
+    print("=" * 60)
+
+    from config import build_agent_prompt, AGENT_SYSTEM_PROMPT
+
+    # 默认：回落全局人设 + auto 语言指令
+    p1 = build_agent_prompt()
+    check("默认回落到全局人设", AGENT_SYSTEM_PROMPT in p1)
+    check("默认追加 auto 语言指令", "相同的语言" in p1 or "同语言" in p1)
+
+    # 自定义 + zh
+    custom = "你是某品牌客服。"
+    p2 = build_agent_prompt(custom, "zh")
+    check("自定义提示词优先", custom in p2 and AGENT_SYSTEM_PROMPT not in p2)
+    check("zh 模式追加中文指令", "中文" in p2)
+
+    # 空字符串回落
+    p3 = build_agent_prompt("   ", "en")
+    check("空白自定义回落默认", AGENT_SYSTEM_PROMPT in p3 and "English" in p3)
+
+    # 未知语言回落 auto
+    p4 = build_agent_prompt(custom, "xx")
+    check("未知语言模式回落 auto", "相同的语言" in p4 or "同语言" in p4)
+
+
+# ============================================================
+# Test 11: 答案清理（api_client.clean_answer / clean_stream_frame
+#           及 CustomerAgent 相关静态方法，无需 API Key）
+# ============================================================
+def test_answer_cleaning():
+    print("\n" + "=" * 60)
+    print(" 测试 11: 答案清理（防 JSON/思考泄露）")
+    print("=" * 60)
+
+    from src.api_client import clean_answer, clean_stream_frame
+    from src.agent import CustomerAgent
+
+    dirty = ('这是答案。\n\n[{"id":1,"score":0.9,"source":"a.pdf","content":"x"}]\n'
+             'Thought: 我需要搜索\nAction: search_knowledge_base')
+    cleaned = clean_answer(dirty)
+    check("clean_answer 去除 JSON 数组", "id" not in cleaned and "score" not in cleaned)
+    check("clean_answer 去除 Thought", "Thought" not in cleaned)
+    check("clean_answer 保留正文", "这是答案" in cleaned)
+
+    # 流式残尾：未闭合 JSON 在末尾应被剥离
+    frame = '最终答案[{"id":2,"score":'
+    cleaned_frame = clean_stream_frame(frame)
+    check("clean_stream_frame 剥离未闭合 JSON 残尾", "[" not in cleaned_frame)
+
+    # 正常写法不应被误伤
+    normal = "支持 [文本] 与 [123] 编号"
+    check("clean_stream_frame 不误伤 [文本]/[数字]", clean_stream_frame(normal) == normal)
+
+    # CustomerAgent 静态方法
+    leak = '答案内容 [{"id":3,"score":0.8}] 结尾'
+    cleaned2 = CustomerAgent._clean_json_leak(leak)
+    check("CustomerAgent._clean_json_leak 去 JSON", "id" not in cleaned2 and "答案内容" in cleaned2)
+
+    tail = '好答案[{"id":4'
+    check("CustomerAgent._clean_stream_frame 去残尾", "[" not in CustomerAgent._clean_stream_frame(tail))
+
+    # 来源提取（search 工具返回文本 → sources）
+    src_text = "[来源 1] 文件: 手册.pdf\n[来源 2] 文件: 说明.docx"
+    sources = CustomerAgent._extract_sources(src_text)
+    check(f"_extract_sources 提取 {len(sources)} 个来源", len(sources) == 2)
+    if sources:
+        check("  来源文件名正确", sources[0]["source"] == "手册.pdf")
+
+
+# ============================================================
+# Test 12: KB 服务校验 + 路由冒烟（无需 API Key）
+# ============================================================
+def test_kb_service_and_routers():
+    print("\n" + "=" * 60)
+    print(" 测试 12: KB 服务校验 + API 路由冒烟")
+    print("=" * 60)
+
+    # --- KBService 名字校验（不实际建库，避免 embedding 调用）---
+    try:
+        from services.kb_service import KBService
+        kbs = KBService()
+        try:
+            kbs.create_kb("bad/name")
+            check("非法知识库名应抛 ValueError", False)
+        except ValueError:
+            check("KBService.create_kb 拦截非法名", True)
+    except Exception as e:
+        check(f"KBService 初始化异常: {e}", False)
+
+    # --- FastAPI 路由冒烟（TestClient，无鉴权时也能跑）---
+    try:
+        from fastapi.testclient import TestClient
+        from api.main import app
+    except Exception as e:
+        check(f"跳过路由冒烟（缺 httpx/TestClient）: {e}", False, warn=True)
+        return
+
+    client = TestClient(app)
+    try:
+        r = client.get("/health")
+        check(f"GET /health -> {r.status_code}", r.status_code == 200 and r.json().get("status") == "ok")
+
+        r = client.get("/api/v1/cache/stats")
+        ok = r.status_code == 200 and "enabled" in r.json()
+        check(f"GET /api/v1/cache/stats -> {r.status_code}", ok)
+
+        r = client.post("/api/v1/cache/clear")
+        check(f"POST /api/v1/cache/clear -> {r.status_code}", r.status_code == 200)
+
+        r = client.get("/api/v1/agents")
+        ok = r.status_code == 200 and isinstance(r.json(), list)
+        check(f"GET /api/v1/agents -> {r.status_code} (list)", ok)
+
+        r = client.get("/api/v1/knowledge-bases")
+        ok = r.status_code == 200 and isinstance(r.json(), list)
+        check(f"GET /api/v1/knowledge-bases -> {r.status_code} (list)", ok)
+    except Exception as e:
+        check(f"路由冒烟异常: {e}", False)
+
+
+# ============================================================
 # 运行所有测试
 # ============================================================
 if __name__ == "__main__":
@@ -365,6 +695,13 @@ if __name__ == "__main__":
     test_document_loading()
     test_vector_store()
     test_reranker()
+    test_namespace()
+    test_agent_registry()
+    test_qa_cache()
+    test_excel_loader()
+    test_build_agent_prompt()
+    test_answer_cleaning()
+    test_kb_service_and_routers()
     test_full_pipeline()
 
     # --- 结果汇总 ---
